@@ -1,1 +1,1 @@
-web: npm run render-start 
+web: cd /opt/render/project/src && node dist/index.js 
