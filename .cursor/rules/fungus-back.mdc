@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Al crear cURLs, siempre se debe entregar el localhost+puerto como {{url}}, y el bearer token como {{token}}.
+No ejecutes comandos para hacer andar el proyecto en la terminal, yo lo tengo corriendo de forma permanente.
