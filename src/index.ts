@@ -26,8 +26,15 @@ const PORT = process.env.PORT || 3000;
 // Log del puerto que se usará
 console.log(`Puerto configurado: ${PORT}`);
 
+// Configuración de CORS
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
