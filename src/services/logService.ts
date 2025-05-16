@@ -82,6 +82,114 @@ export const logService = {
     return await Log.find({ userId: new mongoose.Types.ObjectId(userId) })
       .sort({ createdAt: -1 })
       .limit(limit);
+  },
+
+  /**
+   * Obtener log por su ID
+   * @param logId ID del log a obtener
+   * @returns Promise con el log encontrado o null si no existe
+   */
+  getLogById: async (logId: string) => {
+    return await Log.findById(logId).populate('userId', 'name email');
+  },
+
+  /**
+   * Obtener logs paginados con filtros
+   * @param page Número de página
+   * @param limit Número de logs por página
+   * @param filters Filtros a aplicar
+   * @returns Promise con los logs y metadata de paginación
+   */
+  getLogsPaginated: async (
+    page = 1,
+    limit = 10,
+    filters: {
+      operation?: LogOperation;
+      collectionType?: LogCollectionType;
+      startDate?: Date;
+      endDate?: Date;
+      userId?: string;
+      documentId?: string;
+    } = {}
+  ) => {
+    const query: any = {};
+
+    // Aplicar filtros si existen
+    if (filters.operation) {
+      query.operation = filters.operation;
+    }
+
+    if (filters.collectionType) {
+      query.collectionType = filters.collectionType;
+    }
+
+    if (filters.userId) {
+      query.userId = new mongoose.Types.ObjectId(filters.userId);
+    }
+
+    if (filters.documentId) {
+      query.documentId = new mongoose.Types.ObjectId(filters.documentId);
+    }
+
+    // Filtro por rango de fechas
+    if (filters.startDate || filters.endDate) {
+      query.createdAt = {};
+
+      if (filters.startDate) {
+        query.createdAt.$gte = filters.startDate;
+      }
+
+      if (filters.endDate) {
+        query.createdAt.$lte = filters.endDate;
+      }
+    }
+
+    // Calcular el skip para la paginación
+    const skip = (page - 1) * limit;
+
+    // Obtener el total de documentos para la paginación
+    const total = await Log.countDocuments(query);
+
+    // Obtener los logs paginados
+    const logs = await Log.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('userId', 'name email');
+
+    // Calcular número total de páginas
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      logs,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      }
+    };
+  },
+
+  /**
+   * Eliminar logs por ID
+   * @param logId ID del log a eliminar
+   * @returns Promise con resultado de la operación
+   */
+  deleteLog: async (logId: string) => {
+    return await Log.findByIdAndDelete(logId);
+  },
+
+  /**
+   * Eliminar logs antiguos basados en una fecha límite
+   * @param olderThan Fecha límite para eliminar logs (por defecto 90 días)
+   * @returns Número de logs eliminados
+   */
+  deleteOldLogs: async (olderThan: Date = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)) => {
+    const result = await Log.deleteMany({ createdAt: { $lt: olderThan } });
+    return result.deletedCount;
   }
 };
 
