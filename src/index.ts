@@ -2,8 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDB } from './config/db';
-import moduleService from './services/moduleService';
-import menuService from './services/menuService';
 
 // Importar rutas
 import healthRoutes from './routes/health';
@@ -17,8 +15,6 @@ import logRoutes from './routes/logRoutes';
 import quotationRoutes from './routes/quotationRoutes';
 import saleRoutes from './routes/saleRoutes';
 import purchaseRoutes from './routes/purchaseRoutes';
-import moduleRoutes from './routes/moduleRoutes';
-import menuRoutes from './routes/menuRoutes';
 
 // Configuración de variables de entorno
 dotenv.config();
@@ -60,8 +56,6 @@ app.use('/api/logs', logRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/purchases', purchaseRoutes);
-app.use('/api/modules', moduleRoutes);
-app.use('/api/menus', menuRoutes);
 
 // Ruta base
 app.get('/', (req, res) => {
@@ -77,17 +71,6 @@ const startServer = async () => {
     // Iniciar servidor Express
     app.listen(Number(PORT), '0.0.0.0', async () => {
       console.log(`Servidor corriendo en puerto ${PORT} y expuesto en todas las interfaces (0.0.0.0)`);
-
-      // Inicializar módulos y menú del sistema
-      try {
-        await moduleService.initializeModules();
-        console.log('Módulos del sistema inicializados correctamente');
-
-        await menuService.initializeMenu();
-        console.log('Menú del sistema inicializado correctamente');
-      } catch (error) {
-        console.error('Error al inicializar:', error);
-      }
     });
   } catch (error: any) {
     console.error(`Error al iniciar el servidor: ${error.message}`);
