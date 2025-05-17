@@ -7,6 +7,7 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: string;
+  isDefaultPassword: boolean;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -40,6 +41,10 @@ const UserSchema: Schema = new Schema(
       type: String,
       enum: ['user', 'admin'],
       default: 'user'
+    },
+    isDefaultPassword: {
+      type: Boolean,
+      default: false
     }
   },
   {

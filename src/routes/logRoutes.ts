@@ -1,5 +1,5 @@
 import express from 'express';
-import { getLogs } from '../controllers/logController';
+import { getLogs, getLogById, deleteLog, cleanupLogs } from '../controllers/logController';
 import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
@@ -8,7 +8,15 @@ const router = express.Router();
 router.use(protect);
 router.use(authorize('admin'));
 
-// Ruta para obtener logs
-router.route('/').get(getLogs);
+// Rutas para el CRUD de logs
+router.route('/')
+  .get(getLogs); // Obtener logs con paginación y filtros
+
+router.route('/cleanup')
+  .delete(cleanupLogs); // Eliminar logs antiguos
+
+router.route('/:id')
+  .get(getLogById)     // Obtener un log específico
+  .delete(deleteLog);  // Eliminar un log
 
 export default router; 

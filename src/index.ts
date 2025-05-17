@@ -69,7 +69,7 @@ const startServer = async () => {
     await connectDB();
 
     // Iniciar servidor Express
-    app.listen(Number(PORT), '0.0.0.0', () => {
+    app.listen(Number(PORT), '0.0.0.0', async () => {
       console.log(`Servidor corriendo en puerto ${PORT} y expuesto en todas las interfaces (0.0.0.0)`);
     });
   } catch (error: any) {
