@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import Contact, { IContact } from '../models/Client';
-import Sale from '../models/Sale';
 import logService from '../services/logService';
 import { LogOperation, LogCollectionType } from '../models/Log';
 import '../types/custom'; // Importamos los tipos personalizados
@@ -349,7 +348,7 @@ export const deleteClient = async (req: Request, res: Response): Promise<void> =
 };
 
 /**
- * @desc    Obtener historial de compras de un cliente
+ * @desc    Obtener detalles de un cliente (sin historial de compras)
  * @route   GET /api/clients/:id/details
  * @access  Private
  */
@@ -360,7 +359,7 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
       _id: req.params.id,
       isDeleted: false,
       isCustomer: true
-    }).select('_id name rut isSupplier isCustomer');
+    }).select('_id name rut isSupplier isCustomer email phone address observations');
 
     if (!client) {
       res.status(404).json({
@@ -370,56 +369,18 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    // Obtener todas las ventas para este cliente
-    const purchases = await Sale.find({
-      client: req.params.id,
-      isDeleted: false
-    })
-      .sort({ date: -1 })
-      .populate('items.product', 'name')
-      .select('correlative documentType documentNumber date items netAmount taxAmount totalAmount observations');
-
-    // Calcular estadísticas
-    let totalSpent = 0;
-    let firstPurchaseDate = null;
-    let lastPurchaseDate = null;
-
-    if (purchases.length > 0) {
-      // Sumar todos los montos totales
-      totalSpent = purchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
-
-      // Ordenar por fecha para obtener primera y última compra
-      const sortedPurchases = [...purchases].sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-
-      firstPurchaseDate = sortedPurchases[0].date;
-      lastPurchaseDate = sortedPurchases[sortedPurchases.length - 1].date;
-    }
-
-    // Calcular promedio
-    const averagePurchase = purchases.length > 0 ? totalSpent / purchases.length : 0;
-
-    // Responder con los datos
+    // Responder con los datos básicos del cliente
     res.status(200).json({
       success: true,
       data: {
-        client,
-        purchases,
-        statistics: {
-          totalPurchases: purchases.length,
-          totalSpent,
-          averagePurchase,
-          firstPurchaseDate,
-          lastPurchaseDate
-        }
+        client
       }
     });
   } catch (error: any) {
-    console.error(`Error al obtener historial de compras para cliente ${req.params.id}:`, error);
+    console.error(`Error al obtener detalles del cliente ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Error al obtener historial de compras'
+      message: error.message || 'Error al obtener detalles del cliente'
     });
   }
 }; 

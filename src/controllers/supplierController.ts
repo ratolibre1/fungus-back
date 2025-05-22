@@ -3,7 +3,6 @@ import Contact, { IContact } from '../models/Client';
 import logService from '../services/logService';
 import { LogOperation, LogCollectionType } from '../models/Log';
 import '../types/custom'; // Importamos los tipos personalizados
-import Purchase from '../models/Purchase';
 
 /**
  * @desc    Obtener todos los proveedores
@@ -420,7 +419,7 @@ export const markSupplierAsReviewed = async (req: Request, res: Response): Promi
 };
 
 /**
- * @desc    Obtener historial de compras de un proveedor
+ * @desc    Obtener detalles básicos de un proveedor
  * @route   GET /api/suppliers/:id/details
  * @access  Private
  */
@@ -431,7 +430,7 @@ export const getSupplierDetails = async (req: Request, res: Response): Promise<v
       _id: req.params.id,
       isDeleted: false,
       isSupplier: true
-    }).select('_id name rut isSupplier isCustomer');
+    }).select('_id name rut isSupplier isCustomer email phone address observations');
 
     if (!supplier) {
       res.status(404).json({
@@ -441,55 +440,18 @@ export const getSupplierDetails = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    // Obtener todas las compras para este proveedor
-    const purchases = await Purchase.find({
-      supplier: req.params.id,
-      isDeleted: false
-    })
-      .sort({ date: -1 })
-      .select('number documentType documentNumber date description items netAmount taxAmount totalAmount');
-
-    // Calcular estadísticas
-    let totalPaid = 0;
-    let firstPurchaseDate = null;
-    let lastPurchaseDate = null;
-
-    if (purchases.length > 0) {
-      // Sumar todos los montos totales
-      totalPaid = purchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
-
-      // Ordenar por fecha para obtener primera y última compra
-      const sortedPurchases = [...purchases].sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-
-      firstPurchaseDate = sortedPurchases[0].date;
-      lastPurchaseDate = sortedPurchases[sortedPurchases.length - 1].date;
-    }
-
-    // Calcular promedio
-    const averagePurchase = purchases.length > 0 ? totalPaid / purchases.length : 0;
-
-    // Responder con los datos
+    // Responder con los datos básicos del proveedor
     res.status(200).json({
       success: true,
       data: {
-        supplier,
-        purchases,
-        statistics: {
-          totalPurchases: purchases.length,
-          totalPaid,
-          averagePurchase,
-          firstPurchaseDate,
-          lastPurchaseDate
-        }
+        supplier
       }
     });
   } catch (error: any) {
-    console.error(`Error al obtener historial de compras para proveedor ${req.params.id}:`, error);
+    console.error(`Error al obtener detalles del proveedor ${req.params.id}:`, error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Error al obtener historial de compras'
+      message: error.message || 'Error al obtener detalles del proveedor'
     });
   }
 }; 
