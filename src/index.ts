@@ -12,6 +12,7 @@ import clientRoutes from './routes/clientRoutes';
 import supplierRoutes from './routes/supplierRoutes';
 import contactRoutes from './routes/contactRoutes';
 import logRoutes from './routes/logRoutes';
+import quotationRoutes from './routes/quotationRoutes';
 
 // Configuración de variables de entorno
 dotenv.config();
@@ -50,6 +51,7 @@ app.use('/api/clients', clientRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/logs', logRoutes);
+app.use('/api/quotations', quotationRoutes);
 
 // Ruta base
 app.get('/', (req, res) => {
