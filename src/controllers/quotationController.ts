@@ -43,7 +43,7 @@ export const getQuotations = async (req: Request, res: Response): Promise<void> 
   try {
     // Extraer parámetros de consulta
     const page = req.query.page ? parseInt(req.query.page as string) : 1;
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
 
     // Construir objeto de filtros
     const filters: any = {};
