@@ -143,17 +143,25 @@ export const createSupplier = async (req: Request, res: Response): Promise<void>
       const supplierId = (supplier as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createContactLog(
         LogOperation.CREATE,
-        LogCollectionType.CONTACT,
         supplierId,
         userId,
         {
-          contactName: supplier.name,
-          contactRut: supplier.rut,
+          name: supplier.name,
+          rut: supplier.rut,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
           isCustomer: supplier.isCustomer,
           isSupplier: supplier.isSupplier,
-          contactData: req.body
+          needsReview: supplier.needsReview,
+          operationType: 'SUPPLIER_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'supplierController',
+            requestData: req.body
+          }
         }
       );
     }
@@ -242,25 +250,29 @@ export const updateSupplier = async (req: Request, res: Response): Promise<void>
       const supplierId = (supplier as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.CONTACT,
+      await logService.createContactChangeLog(
         supplierId,
         userId,
+        updateData,
         {
-          contactName: supplier.name,
-          contactRut: supplier.rut,
+          name: oldSupplier.name,
+          rut: oldSupplier.rut,
+          email: oldSupplier.email,
+          phone: oldSupplier.phone,
+          address: oldSupplier.address,
+          isCustomer: oldSupplier.isCustomer,
+          isSupplier: oldSupplier.isSupplier,
+          needsReview: oldSupplier.needsReview
+        },
+        {
+          name: supplier.name,
+          rut: supplier.rut,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
           isCustomer: supplier.isCustomer,
           isSupplier: supplier.isSupplier,
-          wasReviewed: oldSupplier.needsReview && !supplier.needsReview,
-          oldData: {
-            name: oldSupplier.name,
-            rut: oldSupplier.rut,
-            email: oldSupplier.email,
-            phone: oldSupplier.phone,
-            address: oldSupplier.address
-          },
-          updatedFields: Object.keys(req.body)
+          needsReview: supplier.needsReview
         }
       );
     }
@@ -308,16 +320,24 @@ export const deleteSupplier = async (req: Request, res: Response): Promise<void>
       const supplierId = (supplier as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.CONTACT,
+      await logService.createContactDeletionLog(
         supplierId,
         userId,
         {
-          contactName: supplier.name,
-          contactRut: supplier.rut,
+          name: supplier.name,
+          rut: supplier.rut,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
           isCustomer: supplier.isCustomer,
-          isSupplier: supplier.isSupplier
+          isSupplier: supplier.isSupplier,
+          needsReview: supplier.needsReview,
+          createdAt: supplier.createdAt
+        },
+        'full_deletion',
+        {
+          sourceController: 'supplierController',
+          deletionReason: 'User request via DELETE endpoint'
         }
       );
     }
@@ -392,15 +412,26 @@ export const markSupplierAsReviewed = async (req: Request, res: Response): Promi
       const supplierId = (supplier as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createContactLog(
         LogOperation.UPDATE,
-        LogCollectionType.CONTACT,
         supplierId,
         userId,
         {
-          contactName: supplier.name,
-          contactRut: supplier.rut,
-          action: 'mark-as-reviewed'
+          name: supplier.name,
+          rut: supplier.rut,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
+          isCustomer: supplier.isCustomer,
+          isSupplier: supplier.isSupplier,
+          needsReview: supplier.needsReview,
+          operationType: 'MARK_AS_REVIEWED',
+          additionalData: {
+            previousReviewStatus: true,
+            reviewedBy: userId,
+            reviewDate: new Date().toISOString(),
+            sourceController: 'supplierController'
+          }
         }
       );
     }

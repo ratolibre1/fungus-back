@@ -1,8 +1,15 @@
 import mongoose, { Document } from 'mongoose';
-import Quotation, { IQuotation } from '../models/Quotation';
+import Purchase, { IPurchase } from '../models/Purchase';
 import Transaction, { TransactionType, TransactionStatus } from '../models/Transaction';
 import { LogOperation, LogCollectionType } from '../models/Log';
 import logService from './logService';
+
+// Función helper para crear fechas a las 12:00 del día (evita problemas de zona horaria)
+const createNoonDate = (inputDate?: Date | string): Date => {
+  const date = inputDate ? new Date(inputDate) : new Date();
+  date.setHours(12, 0, 0, 0); // 12:00:00.000
+  return date;
+};
 
 /**
  * Función centralizada para calcular los montos de una transacción
@@ -85,29 +92,29 @@ const calculateTransactionAmounts = (items: any[], documentType: string, taxRate
 };
 
 /**
- * Preview de cálculo de cotización (sin guardar en BD)
+ * Preview de cálculo de compra (sin guardar en BD)
  */
-const previewQuotationCalculation = async (quotationData: any): Promise<any> => {
+const previewPurchaseCalculation = async (purchaseData: any): Promise<any> => {
   try {
     // Validar que se proporcione documentType
-    if (!quotationData.documentType) {
+    if (!purchaseData.documentType) {
       throw new Error('El tipo de documento es requerido para el preview');
     }
 
-    if (!['factura', 'boleta'].includes(quotationData.documentType)) {
+    if (!['factura', 'boleta'].includes(purchaseData.documentType)) {
       throw new Error('El tipo de documento debe ser "factura" o "boleta"');
     }
 
     // Validar que haya items
-    if (!quotationData.items || quotationData.items.length === 0) {
+    if (!purchaseData.items || purchaseData.items.length === 0) {
       throw new Error('Se requieren items para el preview');
     }
 
     // Calcular los montos usando la función centralizada
-    const taxRate = quotationData.taxRate || 0.19;
+    const taxRate = purchaseData.taxRate || 0.19;
     const calculations = calculateTransactionAmounts(
-      quotationData.items,
-      quotationData.documentType,
+      purchaseData.items,
+      purchaseData.documentType,
       taxRate
     );
 
@@ -117,7 +124,7 @@ const previewQuotationCalculation = async (quotationData: any): Promise<any> => 
       taxAmount: calculations.taxAmount,
       totalAmount: calculations.totalAmount,
       taxRate,
-      documentType: quotationData.documentType
+      documentType: purchaseData.documentType
     };
   } catch (error) {
     throw error;
@@ -125,7 +132,7 @@ const previewQuotationCalculation = async (quotationData: any): Promise<any> => 
 };
 
 /**
- * Genera el siguiente número de documento para cotizaciones
+ * Genera el siguiente número de documento para compras
  */
 const generateNextDocumentNumber = async (): Promise<string> => {
   const lastTransaction = await Transaction.findOne({})
@@ -133,50 +140,50 @@ const generateNextDocumentNumber = async (): Promise<string> => {
     .limit(1);
 
   const nextCorrelative = lastTransaction ? lastTransaction.correlative + 1 : 1;
-  // Formato: COT-0001, COT-0002, etc.
-  return `COT-${nextCorrelative.toString().padStart(4, '0')}`;
+  // Formato: COM-0001, COM-0002, etc.
+  return `COM-${nextCorrelative.toString().padStart(4, '0')}`;
 };
 
 /**
- * Crea una nueva cotización
+ * Crea una nueva compra
  */
-const createQuotation = async (quotationData: any, userId: string): Promise<IQuotation> => {
+const createPurchase = async (purchaseData: any, userId: string): Promise<IPurchase> => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     // Validar que se proporcione documentType
-    if (!quotationData.documentType) {
+    if (!purchaseData.documentType) {
       throw new Error('El tipo de documento es requerido');
     }
 
-    if (!['factura', 'boleta'].includes(quotationData.documentType)) {
+    if (!['factura', 'boleta'].includes(purchaseData.documentType)) {
       throw new Error('El tipo de documento debe ser "factura" o "boleta"');
     }
 
-    // CORREGIDO: Generar correlativo buscando en TODAS las transacciones
+    // Generar correlativo buscando en TODAS las transacciones
     const lastTransaction = await Transaction.findOne({})
       .sort({ correlative: -1 })
       .limit(1)
       .session(session);
 
     const correlative = lastTransaction ? lastTransaction.correlative + 1 : 1;
-    const documentNumber = `COT-${correlative.toString().padStart(4, '0')}`;
+    const documentNumber = `COM-${correlative.toString().padStart(4, '0')}`;
 
     // Calcular automáticamente los montos usando la función centralizada
-    const taxRate = quotationData.taxRate || 0.19;
+    const taxRate = purchaseData.taxRate || 0.19;
     const calculations = calculateTransactionAmounts(
-      quotationData.items,
-      quotationData.documentType,
+      purchaseData.items,
+      purchaseData.documentType,
       taxRate
     );
 
-    // Crear la cotización con montos calculados
-    const newQuotationData = {
-      ...quotationData,
+    // Crear la compra con montos calculados
+    const newPurchaseData = {
+      ...purchaseData,
       // Normalizar fecha si viene en los datos de entrada
-      ...(quotationData.date && { date: createNoonDate(quotationData.date) }),
-      type: TransactionType.QUOTATION,
+      ...(purchaseData.date && { date: createNoonDate(purchaseData.date) }),
+      type: TransactionType.PURCHASE,
       correlative,
       documentNumber,
       user: userId,
@@ -185,36 +192,36 @@ const createQuotation = async (quotationData: any, userId: string): Promise<IQuo
       taxAmount: calculations.taxAmount,
       totalAmount: calculations.totalAmount,
       taxRate,
-      status: quotationData.status || TransactionStatus.PENDING // Por defecto las cotizaciones están pendientes
+      status: purchaseData.status || TransactionStatus.PENDING // Por defecto las compras están pendientes
     };
 
-    const newQuotation = (await Quotation.create([newQuotationData], { session }))[0];
-    const quotationId = (newQuotation as unknown as Document & { _id: mongoose.Types.ObjectId })._id;
+    const newPurchase = (await Purchase.create([newPurchaseData], { session }))[0];
+    const purchaseId = (newPurchase as unknown as Document & { _id: mongoose.Types.ObjectId })._id;
 
     // Registrar en el log con información detallada
     await logService.createLog(
       LogOperation.CREATE,
-      LogCollectionType.QUOTATION,
-      quotationId.toString(),
+      LogCollectionType.PURCHASE,
+      purchaseId.toString(),
       userId,
       {
         documentNumber,
-        documentType: newQuotationData.documentType,
+        documentType: newPurchaseData.documentType,
         counterparty: {
-          id: newQuotationData.counterparty,
-          name: quotationData.counterpartyName || 'N/A' // Si está disponible en los datos
+          id: newPurchaseData.counterparty,
+          name: purchaseData.counterpartyName || 'N/A' // Si está disponible en los datos
         },
         totalAmount: calculations.totalAmount,
         netAmount: calculations.netAmount,
         taxAmount: calculations.taxAmount,
         itemsCount: calculations.processedItems.length,
-        status: newQuotationData.status,
-        validUntil: newQuotationData.validUntil
+        status: newPurchaseData.status,
+        observations: newPurchaseData.observations
       }
     );
 
     await session.commitTransaction();
-    return newQuotation;
+    return newPurchase;
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -224,10 +231,10 @@ const createQuotation = async (quotationData: any, userId: string): Promise<IQuo
 };
 
 /**
- * Obtiene todas las cotizaciones con paginación y filtros
+ * Obtiene todas las compras con paginación y filtros
  */
-const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
-  quotations: IQuotation[];
+const getPurchases = async (page = 1, limit = 10, filters: any = {}): Promise<{
+  purchases: IPurchase[];
   pagination: {
     total: number;
     pages: number;
@@ -239,7 +246,7 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
 }> => {
   // Construir query con filtros
   const matchStage: any = {
-    type: TransactionType.QUOTATION,
+    type: TransactionType.PURCHASE,
     isDeleted: filters.includeDeleted ? { $in: [true, false] } : false
   };
 
@@ -248,7 +255,7 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
     matchStage.status = filters.status;
   }
 
-  // Filtrar por contraparte (cliente)
+  // Filtrar por contraparte (proveedor)
   if (filters.counterparty) {
     matchStage.counterparty = new mongoose.Types.ObjectId(filters.counterparty);
   }
@@ -258,7 +265,7 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
     matchStage.user = new mongoose.Types.ObjectId(filters.user);
   }
 
-  // Filtrar por rango de fechas
+  // Filtrar por rango de fechas (igual que en quotations y sales)
   if (filters.startDate || filters.endDate) {
     matchStage.date = {};
     if (filters.startDate) {
@@ -309,14 +316,14 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
   }
 
   // Calcular paginación
-  const total = await Quotation.countDocuments(matchStage);
+  const total = await Purchase.countDocuments(matchStage);
   const pages = Math.ceil(total / limit);
   const offset = (page - 1) * limit;
 
-  // Obtener cotizaciones paginadas con aggregate y $lookup
-  const quotations = await Quotation.aggregate([
+  // Obtener compras paginadas con aggregate y $lookup (igual que quotations y sales)
+  const purchases = await Purchase.aggregate([
     { $match: matchStage },
-    // Lookup para contraparte (cliente/proveedor)
+    // Lookup para contraparte (proveedor)
     {
       $lookup: {
         from: 'contacts',
@@ -344,7 +351,7 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
     { $sort: sortStage },
     { $skip: offset },
     { $limit: limit },
-    // Lookup para items
+    // Lookup para items (incluir itemDetails)
     {
       $lookup: {
         from: 'items',
@@ -410,7 +417,7 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
   ]);
 
   return {
-    quotations,
+    purchases,
     pagination: {
       total,
       pages,
@@ -423,18 +430,18 @@ const getQuotations = async (page = 1, limit = 10, filters: any = {}): Promise<{
 };
 
 /**
- * Obtiene una cotización por ID
+ * Obtiene una compra por ID
  */
-const getQuotationById = async (id: string): Promise<IQuotation | null> => {
-  const result = await Quotation.aggregate([
+const getPurchaseById = async (id: string): Promise<IPurchase | null> => {
+  const result = await Purchase.aggregate([
     {
       $match: {
         _id: new mongoose.Types.ObjectId(id),
-        type: TransactionType.QUOTATION,
+        type: TransactionType.PURCHASE,
         isDeleted: false
       }
     },
-    // Lookup para contraparte (cliente/proveedor)
+    // Lookup para contraparte (proveedor)
     {
       $lookup: {
         from: 'contacts',
@@ -458,7 +465,7 @@ const getQuotationById = async (id: string): Promise<IQuotation | null> => {
         as: 'userData'
       }
     },
-    // Lookup para items
+    // Lookup para items (incluir itemDetails)
     {
       $lookup: {
         from: 'items',
@@ -527,56 +534,56 @@ const getQuotationById = async (id: string): Promise<IQuotation | null> => {
 };
 
 /**
- * Actualiza una cotización existente
+ * Actualiza una compra
  */
-const updateQuotation = async (id: string, quotationData: any, userId: string): Promise<IQuotation | null> => {
+const updatePurchase = async (id: string, purchaseData: any, userId: string): Promise<IPurchase | null> => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const quotation = await Quotation.findOne({
+    const purchase = await Purchase.findOne({
       _id: id,
-      type: TransactionType.QUOTATION,
+      type: TransactionType.PURCHASE,
       isDeleted: false
     }).session(session);
 
-    if (!quotation) {
-      throw new Error('Cotización no encontrada');
+    if (!purchase) {
+      throw new Error('Compra no encontrada');
     }
 
-    // Verificar si se puede editar (solo se pueden editar cotizaciones pendientes)
-    if (quotation.status !== 'pending') {
-      throw new Error('Solo se pueden editar cotizaciones en estado pendiente');
+    // Verificar si se puede editar (solo se pueden editar compras pendientes)
+    if (purchase.status !== 'pending') {
+      throw new Error('Solo se pueden editar compras en estado pendiente');
     }
 
     // Validar documentType si se proporciona
-    if (quotationData.documentType && !['factura', 'boleta'].includes(quotationData.documentType)) {
+    if (purchaseData.documentType && !['factura', 'boleta'].includes(purchaseData.documentType)) {
       throw new Error('El tipo de documento debe ser "factura" o "boleta"');
     }
 
     // Calcular automáticamente los montos si se envían items
-    let processedData = { ...quotationData };
+    let processedData = { ...purchaseData };
 
-    if (quotationData.items && quotationData.items.length > 0) {
+    if (purchaseData.items && purchaseData.items.length > 0) {
       // Determinar el documentType a usar (nuevo o existente)
-      const documentType = quotationData.documentType || quotation.documentType;
+      const documentType = purchaseData.documentType || purchase.documentType;
 
       if (!documentType) {
         throw new Error('Se requiere un tipo de documento para calcular los montos');
       }
 
       // Calcular automáticamente los montos usando la función centralizada
-      const taxRate = quotationData.taxRate || quotation.taxRate || 0.19;
+      const taxRate = purchaseData.taxRate || purchase.taxRate || 0.19;
       const calculations = calculateTransactionAmounts(
-        quotationData.items,
+        purchaseData.items,
         documentType,
         taxRate
       );
 
       processedData = {
-        ...quotationData,
+        ...purchaseData,
         // Normalizar fecha si viene en los datos de entrada
-        ...(quotationData.date && { date: createNoonDate(quotationData.date) }),
+        ...(purchaseData.date && { date: createNoonDate(purchaseData.date) }),
         items: calculations.processedItems,
         netAmount: calculations.netAmount,
         taxAmount: calculations.taxAmount,
@@ -585,12 +592,12 @@ const updateQuotation = async (id: string, quotationData: any, userId: string): 
       };
     }
 
-    // Actualizar la cotización
-    const updatedQuotation = await Quotation.findByIdAndUpdate(
+    // Actualizar la compra
+    const updatedPurchase = await Purchase.findByIdAndUpdate(
       id,
       {
         ...processedData,
-        type: TransactionType.QUOTATION, // Asegurar que no se cambie el tipo
+        type: TransactionType.PURCHASE, // Asegurar que no se cambie el tipo
       },
       { new: true, runValidators: true, session }
     );
@@ -598,31 +605,30 @@ const updateQuotation = async (id: string, quotationData: any, userId: string): 
     // Registrar en el log con información de cambios
     await logService.createLog(
       LogOperation.UPDATE,
-      LogCollectionType.QUOTATION,
+      LogCollectionType.PURCHASE,
       id,
       userId,
       {
-        documentNumber: quotation.documentNumber,
+        documentNumber: purchase.documentNumber,
         changes: {
-          ...(quotationData.counterparty && { counterparty: { from: quotation.counterparty, to: quotationData.counterparty } }),
-          ...(quotationData.documentType && { documentType: { from: quotation.documentType, to: quotationData.documentType } }),
-          ...(quotationData.items && {
-            itemsCount: { from: quotation.items.length, to: quotationData.items.length },
-            totalAmount: { from: quotation.totalAmount, to: processedData.totalAmount }
+          ...(purchaseData.counterparty && { counterparty: { from: purchase.counterparty, to: purchaseData.counterparty } }),
+          ...(purchaseData.documentType && { documentType: { from: purchase.documentType, to: purchaseData.documentType } }),
+          ...(purchaseData.items && {
+            itemsCount: { from: purchase.items.length, to: purchaseData.items.length },
+            totalAmount: { from: purchase.totalAmount, to: processedData.totalAmount }
           }),
-          ...(quotationData.validUntil && { validUntil: { from: quotation.validUntil, to: quotationData.validUntil } }),
-          ...(quotationData.observations && { observations: { from: quotation.observations, to: quotationData.observations } })
+          ...(purchaseData.observations && { observations: { from: purchase.observations, to: purchaseData.observations } })
         },
         previousValues: {
-          totalAmount: quotation.totalAmount,
-          netAmount: quotation.netAmount,
-          status: quotation.status
+          totalAmount: purchase.totalAmount,
+          netAmount: purchase.netAmount,
+          status: purchase.status
         }
       }
     );
 
     await session.commitTransaction();
-    return updatedQuotation;
+    return updatedPurchase;
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -632,30 +638,30 @@ const updateQuotation = async (id: string, quotationData: any, userId: string): 
 };
 
 /**
- * Elimina una cotización (borrado lógico)
+ * Elimina una compra (borrado lógico)
  */
-const deleteQuotation = async (id: string, userId: string): Promise<IQuotation | null> => {
+const deletePurchase = async (id: string, userId: string): Promise<IPurchase | null> => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const quotation = await Quotation.findOne({
+    const purchase = await Purchase.findOne({
       _id: id,
-      type: TransactionType.QUOTATION,
+      type: TransactionType.PURCHASE,
       isDeleted: false
     }).session(session);
 
-    if (!quotation) {
-      throw new Error('Cotización no encontrada');
+    if (!purchase) {
+      throw new Error('Compra no encontrada');
     }
 
-    // Verificar si se puede eliminar (solo se pueden eliminar cotizaciones pendientes)
-    if (quotation.status !== 'pending') {
-      throw new Error('Solo se pueden eliminar cotizaciones en estado pendiente');
+    // Verificar si se puede eliminar (solo se pueden eliminar compras pendientes)
+    if (purchase.status !== 'pending') {
+      throw new Error('Solo se pueden eliminar compras en estado pendiente');
     }
 
     // Borrado lógico
-    const deletedQuotation = await Quotation.findByIdAndUpdate(
+    const deletedPurchase = await Purchase.findByIdAndUpdate(
       id,
       { isDeleted: true },
       { new: true, session }
@@ -664,23 +670,24 @@ const deleteQuotation = async (id: string, userId: string): Promise<IQuotation |
     // Registrar en el log con información completa
     await logService.createLog(
       LogOperation.DELETE,
-      LogCollectionType.QUOTATION,
+      LogCollectionType.PURCHASE,
       id,
       userId,
       {
-        documentNumber: quotation.documentNumber,
+        documentNumber: purchase.documentNumber,
         deletedData: {
-          counterparty: quotation.counterparty,
-          totalAmount: quotation.totalAmount,
-          status: quotation.status,
-          itemsCount: quotation.items.length,
-          createdAt: quotation.createdAt
+          counterparty: purchase.counterparty,
+          totalAmount: purchase.totalAmount,
+          status: purchase.status,
+          itemsCount: purchase.items.length,
+          observations: purchase.observations,
+          createdAt: purchase.createdAt
         }
       }
     );
 
     await session.commitTransaction();
-    return deletedQuotation;
+    return deletedPurchase;
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -690,37 +697,36 @@ const deleteQuotation = async (id: string, userId: string): Promise<IQuotation |
 };
 
 /**
- * Cambia el estado de una cotización
+ * Cambia el estado de una compra
  */
-const changeQuotationStatus = async (id: string, status: string, userId: string): Promise<IQuotation | null> => {
+const changePurchaseStatus = async (id: string, status: string, userId: string): Promise<IPurchase | null> => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const quotation = await Quotation.findOne({
+    const purchase = await Purchase.findOne({
       _id: id,
-      type: TransactionType.QUOTATION,
+      type: TransactionType.PURCHASE,
       isDeleted: false
     }).session(session);
 
-    if (!quotation) {
-      throw new Error('Cotización no encontrada');
+    if (!purchase) {
+      throw new Error('Compra no encontrada');
     }
 
-    // Validar transiciones de estado permitidas
+    // Validar transiciones de estado permitidas para compras
     const validTransitions: { [key: string]: string[] } = {
-      'pending': ['approved', 'rejected'],
-      'approved': ['converted', 'rejected'],
-      'rejected': ['pending'],
-      'converted': []
+      'pending': ['received', 'rejected'],
+      'received': [],
+      'rejected': []
     };
 
-    if (!validTransitions[quotation.status]?.includes(status)) {
-      throw new Error(`No se puede cambiar el estado de ${quotation.status} a ${status}`);
+    if (!validTransitions[purchase.status]?.includes(status)) {
+      throw new Error(`No se puede cambiar el estado de ${purchase.status} a ${status}`);
     }
 
     // Actualizar estado
-    const updatedQuotation = await Quotation.findByIdAndUpdate(
+    const updatedPurchase = await Purchase.findByIdAndUpdate(
       id,
       { status },
       { new: true, runValidators: true, session }
@@ -729,27 +735,28 @@ const changeQuotationStatus = async (id: string, status: string, userId: string)
     // Registrar en el log con información detallada del cambio de estado
     await logService.createLog(
       LogOperation.UPDATE,
-      LogCollectionType.QUOTATION,
+      LogCollectionType.PURCHASE,
       id,
       userId,
       {
-        documentNumber: quotation.documentNumber,
+        documentNumber: purchase.documentNumber,
         operationType: 'STATUS_CHANGE',
         statusTransition: {
-          from: quotation.status,
+          from: purchase.status,
           to: status
         },
         transactionInfo: {
-          totalAmount: quotation.totalAmount,
-          counterparty: quotation.counterparty,
-          itemsCount: quotation.items.length
+          totalAmount: purchase.totalAmount,
+          counterparty: purchase.counterparty,
+          itemsCount: purchase.items.length,
+          observations: purchase.observations
         },
         timestamp: new Date().toISOString()
       }
     );
 
     await session.commitTransaction();
-    return updatedQuotation;
+    return updatedPurchase;
   } catch (error) {
     await session.abortTransaction();
     throw error;
@@ -758,20 +765,13 @@ const changeQuotationStatus = async (id: string, status: string, userId: string)
   }
 };
 
-// Función helper para crear fechas a las 12:00 del día (evita problemas de zona horaria)
-const createNoonDate = (inputDate?: Date | string): Date => {
-  const date = inputDate ? new Date(inputDate) : new Date();
-  date.setHours(12, 0, 0, 0); // 12:00:00.000
-  return date;
-};
-
 export default {
-  createQuotation,
-  getQuotations,
-  getQuotationById,
-  updateQuotation,
-  deleteQuotation,
-  changeQuotationStatus,
+  createPurchase,
+  getPurchases,
+  getPurchaseById,
+  updatePurchase,
+  deletePurchase,
+  changePurchaseStatus,
   generateNextDocumentNumber,
-  previewQuotationCalculation
+  previewPurchaseCalculation
 }; 

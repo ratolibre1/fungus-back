@@ -169,18 +169,26 @@ export const createContact = async (req: Request, res: Response): Promise<void> 
           const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
           const userId = req.user._id.toString();
 
-          await logService.createLog(
+          await logService.createContactLog(
             LogOperation.CREATE,
-            LogCollectionType.CONTACT,
             contactId,
             userId,
             {
-              contactName: contact.name,
-              contactRut: contact.rut,
+              name: contact.name,
+              rut: contact.rut,
+              email: contact.email,
+              phone: contact.phone,
+              address: contact.address,
               isCustomer: contact.isCustomer,
               isSupplier: contact.isSupplier,
-              wasReactivated: true,
-              contactData: req.body
+              needsReview: contact.needsReview,
+              operationType: 'CONTACT_REACTIVATION',
+              additionalData: {
+                wasReactivated: true,
+                sourceController: 'contactController',
+                requestData: req.body,
+                previousDeletionStatus: true
+              }
             }
           );
         }
@@ -216,17 +224,26 @@ export const createContact = async (req: Request, res: Response): Promise<void> 
       const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createContactLog(
         LogOperation.CREATE,
-        LogCollectionType.CONTACT,
         contactId,
         userId,
         {
-          contactName: contact.name,
-          contactRut: contact.rut,
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
           isCustomer: contact.isCustomer,
           isSupplier: contact.isSupplier,
-          contactData: req.body
+          needsReview: contact.needsReview,
+          operationType: 'CONTACT_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'contactController',
+            requestData: req.body,
+            hasMultipleRoles: contact.isCustomer && contact.isSupplier
+          }
         }
       );
     }
@@ -313,23 +330,29 @@ export const updateContact = async (req: Request, res: Response): Promise<void> 
       const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.CONTACT,
+      await logService.createContactChangeLog(
         contactId,
         userId,
+        req.body,
         {
-          contactName: contact.name,
-          contactRut: contact.rut,
+          name: oldContact.name,
+          rut: oldContact.rut,
+          email: oldContact.email,
+          phone: oldContact.phone,
+          address: oldContact.address,
+          isCustomer: oldContact.isCustomer,
+          isSupplier: oldContact.isSupplier,
+          needsReview: oldContact.needsReview
+        },
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
           isCustomer: contact.isCustomer,
           isSupplier: contact.isSupplier,
-          oldData: {
-            name: oldContact.name,
-            rut: oldContact.rut,
-            isCustomer: oldContact.isCustomer,
-            isSupplier: oldContact.isSupplier
-          },
-          changes: req.body
+          needsReview: contact.needsReview
         }
       );
     }
@@ -383,17 +406,25 @@ export const deleteContact = async (req: Request, res: Response): Promise<void> 
     if (req.user && req.user._id) {
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.CONTACT,
+      await logService.createContactDeletionLog(
         contactId,
         userId,
         {
-          contactName: contactName,
-          contactRut: contactRut,
-          wasCustomer: wasCustomer,
-          wasSupplier: wasSupplier,
-          action: 'deleted'
+          name: contactName,
+          rut: contactRut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: wasCustomer,
+          isSupplier: wasSupplier,
+          needsReview: contact.needsReview,
+          createdAt: contact.createdAt
+        },
+        'full_deletion',
+        {
+          sourceController: 'contactController',
+          deletionReason: 'User request via DELETE endpoint',
+          hadMultipleRoles: wasCustomer && wasSupplier
         }
       );
     }

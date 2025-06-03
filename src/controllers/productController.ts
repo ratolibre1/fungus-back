@@ -76,14 +76,25 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       const productId = product._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createItemLog(
         LogOperation.CREATE,
-        LogCollectionType.PRODUCT,
         productId,
         userId,
         {
-          productName: product.get('name'),
-          productData: req.body
+          name: product.get('name'),
+          description: product.get('description'),
+          netPrice: product.get('netPrice'),
+          dimensions: product.get('dimensions'),
+          stock: product.get('stock'),
+          isInventoried: product.get('isInventoried'),
+          itemType: 'Product',
+          operationType: 'PRODUCT_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'productController',
+            requestData: req.body,
+            initialStock: product.get('stock')
+          }
         }
       );
     }
@@ -108,6 +119,21 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
  */
 export const updateProduct = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Obtener producto antes de la actualización para el log
+    const oldProduct = await Product.findOne({
+      _id: req.params.id,
+      isDeleted: false
+    });
+
+    if (!oldProduct) {
+      res.status(404).json({
+        success: false,
+        message: 'Producto no encontrado'
+      });
+      return;
+    }
+
+    // Actualizar producto
     const product = await Product.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -130,14 +156,27 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
       const productId = product._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.PRODUCT,
+      await logService.createItemChangeLog(
         productId,
         userId,
+        req.body,
         {
-          productName: product.get('name'),
-          changes: req.body
+          name: oldProduct.get('name'),
+          description: oldProduct.get('description'),
+          netPrice: oldProduct.get('netPrice'),
+          dimensions: oldProduct.get('dimensions'),
+          stock: oldProduct.get('stock'),
+          isInventoried: oldProduct.get('isInventoried'),
+          itemType: 'Product'
+        },
+        {
+          name: product.get('name'),
+          description: product.get('description'),
+          netPrice: product.get('netPrice'),
+          dimensions: product.get('dimensions'),
+          stock: product.get('stock'),
+          isInventoried: product.get('isInventoried'),
+          itemType: 'Product'
         }
       );
     }
@@ -186,12 +225,26 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
     if (req.user && req.user._id) {
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.PRODUCT,
+      await logService.createItemDeletionLog(
         productId,
         userId,
-        { productName }
+        {
+          name: productName,
+          description: product.get('description'),
+          netPrice: product.get('netPrice'),
+          dimensions: product.get('dimensions'),
+          stock: product.get('stock'),
+          isInventoried: product.get('isInventoried'),
+          itemType: 'Product',
+          createdAt: product.get('createdAt')
+        },
+        {
+          sourceController: 'productController',
+          deletionReason: 'User request via DELETE endpoint',
+          finalStockValue: product.get('stock') !== null && product.get('stock') > 0
+            ? product.get('netPrice') * product.get('stock')
+            : 0
+        }
       );
     }
 

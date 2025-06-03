@@ -143,17 +143,25 @@ export const createClient = async (req: Request, res: Response): Promise<void> =
       const clientId = (client as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createContactLog(
         LogOperation.CREATE,
-        LogCollectionType.CONTACT,
         clientId,
         userId,
         {
-          contactName: client.name,
-          contactRut: client.rut,
+          name: client.name,
+          rut: client.rut,
+          email: client.email,
+          phone: client.phone,
+          address: client.address,
           isCustomer: client.isCustomer,
           isSupplier: client.isSupplier,
-          contactData: req.body
+          needsReview: client.needsReview,
+          operationType: 'CLIENT_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'clientController',
+            requestData: req.body
+          }
         }
       );
     }
@@ -242,21 +250,29 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
       const clientId = (client as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.CONTACT,
+      await logService.createContactChangeLog(
         clientId,
         userId,
+        updateData,
         {
-          contactName: client.name,
-          contactRut: client.rut,
+          name: oldClient.name,
+          rut: oldClient.rut,
+          email: oldClient.email,
+          phone: oldClient.phone,
+          address: oldClient.address,
+          isCustomer: oldClient.isCustomer,
+          isSupplier: oldClient.isSupplier,
+          needsReview: oldClient.needsReview
+        },
+        {
+          name: client.name,
+          rut: client.rut,
+          email: client.email,
+          phone: client.phone,
+          address: client.address,
           isCustomer: client.isCustomer,
           isSupplier: client.isSupplier,
-          oldData: {
-            name: oldClient.name,
-            rut: oldClient.rut
-          },
-          changes: updateData
+          needsReview: client.needsReview
         }
       );
     }
@@ -317,17 +333,25 @@ export const deleteClient = async (req: Request, res: Response): Promise<void> =
     if (req.user && req.user._id) {
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.CONTACT,
+      await logService.createContactDeletionLog(
         clientId,
         userId,
         {
-          contactName: clientName,
-          contactRut: clientRut,
-          wasCustomer: true,
-          wasSupplier: wasAlsoSupplier,
-          action: wasAlsoSupplier ? 'role_removed' : 'deleted'
+          name: clientName,
+          rut: clientRut,
+          email: client.email,
+          phone: client.phone,
+          address: client.address,
+          isCustomer: true,
+          isSupplier: wasAlsoSupplier,
+          needsReview: client.needsReview,
+          createdAt: client.createdAt
+        },
+        wasAlsoSupplier ? 'role_removal' : 'full_deletion',
+        {
+          sourceController: 'clientController',
+          preservedAsSupplier: wasAlsoSupplier,
+          deletionReason: 'User request via DELETE endpoint'
         }
       );
     }

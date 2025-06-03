@@ -1,6 +1,13 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { IUser } from './User';
 
+// Función helper para crear fechas a las 12:00 del día (evita problemas de zona horaria)
+const createNoonDate = (): Date => {
+  const now = new Date();
+  now.setHours(12, 0, 0, 0); // 12:00:00.000
+  return now;
+};
+
 // Tipos de transacciones
 export enum TransactionType {
   QUOTATION = 'quotation',
@@ -110,7 +117,7 @@ const TransactionSchema: Schema = new Schema(
     date: {
       type: Date,
       required: [true, 'La fecha es requerida'],
-      default: Date.now
+      default: createNoonDate
     },
     counterparty: {
       type: mongoose.Schema.Types.ObjectId,
