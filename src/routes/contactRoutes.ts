@@ -6,7 +6,11 @@ import {
   updateContact,
   deleteContact,
   searchContacts,
-  getDualContacts
+  getDualContacts,
+  addSupplierRole,
+  addCustomerRole,
+  removeSupplierRole,
+  removeCustomerRole
 } from '../controllers/contactController';
 import { protect } from '../middleware/auth';
 
@@ -30,5 +34,11 @@ router.route('/:id')
   .get(getContactById)
   .put(updateContact)
   .delete(deleteContact);
+
+// Rutas específicas para manejo de roles
+router.route('/:id/add-supplier-role').patch(addSupplierRole);
+router.route('/:id/add-customer-role').patch(addCustomerRole);
+router.route('/:id/remove-supplier-role').patch(removeSupplierRole);
+router.route('/:id/remove-customer-role').patch(removeCustomerRole);
 
 export default router; 

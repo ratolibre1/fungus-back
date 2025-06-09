@@ -629,7 +629,7 @@ export const getSupplierTransactions = async (req: Request, res: Response): Prom
     const { id } = req.params;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    const type = req.query.type as string; // 'purchase', 'sale', or undefined (all)
+    const type = (req.query.type as string).toLowerCase(); // 'purchase', 'sale', or undefined (all)
 
     // Verificar que el proveedor existe
     const supplier = await Contact.findOne({
