@@ -1,33 +1,112 @@
 import { Request, Response } from 'express';
-import Quotation, { QuotationStatus, IQuotation } from '../models/Quotation';
-import Contact from '../models/Client';
-import Item from '../models/Item';
-import logService from '../services/logService';
-import { LogOperation, LogCollectionType } from '../models/Log';
-import mongoose from 'mongoose';
-import '../types/custom';
-import Sale from '../models/Sale';
-import stockService from '../services/stockService';
-import { DocumentType } from '../models/Sale';
-import { IContact } from '../models/Client';
+import quotationService from '../services/quotationService';
+import { TransactionStatus } from '../models/Transaction';
 
 /**
- * @desc    Obtener todas las cotizaciones
+ * @desc    Crear una nueva cotización
+ * @route   POST /api/quotations
+ * @access  Private
+ */
+export const createQuotation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Verificar que el usuario está autenticado (middleware protect ya lo garantiza)
+    if (!req.user?._id) {
+      res.status(401).json({
+        success: false,
+        message: 'No autorizado'
+      });
+      return;
+    }
+
+    // Crear la cotización
+    const quotation = await quotationService.createQuotation(req.body, req.user._id.toString());
+
+    res.status(201).json({
+      success: true,
+      data: quotation
+    });
+  } catch (error: any) {
+    console.error('Error al crear cotización:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Error al crear cotización'
+    });
+  }
+};
+
+/**
+ * @desc    Obtener todas las cotizaciones con paginación y filtros
  * @route   GET /api/quotations
  * @access  Private
  */
 export const getQuotations = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Filtrar para mostrar solo cotizaciones activas (no eliminadas)
-    const quotations = await Quotation.find({ isDeleted: false })
-      .populate('client', 'name rut')
-      .populate('seller', 'name email')
-      .sort({ createdAt: -1 });
+    // Extraer parámetros de consulta
+    const page = req.query.page ? parseInt(req.query.page as string) : 1;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+
+    // Construir objeto de filtros
+    const filters: any = {};
+
+    // Filtro por estado
+    if (req.query.status) {
+      filters.status = req.query.status;
+    }
+
+    // Filtro por cliente/contraparte
+    if (req.query.counterparty) {
+      filters.counterparty = req.query.counterparty;
+    }
+
+    // Filtro por usuario
+    if (req.query.user) {
+      filters.user = req.query.user;
+    }
+
+    // Filtro por rango de fechas
+    if (req.query.startDate) {
+      console.log('📅 startDate recibido:', req.query.startDate);
+      filters.startDate = req.query.startDate;
+    }
+
+    if (req.query.endDate) {
+      console.log('📅 endDate recibido:', req.query.endDate);
+      filters.endDate = req.query.endDate;
+    }
+
+    // Filtro por monto
+    if (req.query.minAmount) {
+      filters.minAmount = req.query.minAmount;
+    }
+
+    if (req.query.maxAmount) {
+      filters.maxAmount = req.query.maxAmount;
+    }
+
+    // Parámetros de ordenamiento
+    if (req.query.sort) {
+      filters.sort = req.query.sort;
+      console.log('📊 Campo de ordenamiento:', req.query.sort);
+    }
+
+    if (req.query.order) {
+      filters.order = req.query.order;
+      console.log('📊 Orden:', req.query.order);
+    }
+
+    // Incluir eliminados (solo para admins)
+    if (req.query.includeDeleted === 'true' && req.user?.role === 'admin') {
+      filters.includeDeleted = true;
+    }
+
+    // Obtener cotizaciones paginadas con filtros
+    const result = await quotationService.getQuotations(page, limit, filters);
 
     res.status(200).json({
       success: true,
-      count: quotations.length,
-      data: quotations
+      count: result.quotations.length,
+      pagination: result.pagination,
+      data: result.quotations
     });
   } catch (error: any) {
     console.error('Error al obtener cotizaciones:', error);
@@ -45,12 +124,9 @@ export const getQuotations = async (req: Request, res: Response): Promise<void> 
  */
 export const getQuotationById = async (req: Request, res: Response): Promise<void> => {
   try {
-    const quotation = await Quotation.findById(req.params.id)
-      .populate('client', 'name rut email phone address')
-      .populate('seller', 'name email')
-      .populate('items.product', 'name description netPrice');
+    const quotation = await quotationService.getQuotationById(req.params.id);
 
-    if (!quotation || quotation.isDeleted) {
+    if (!quotation) {
       res.status(404).json({
         success: false,
         message: 'Cotización no encontrada'
@@ -72,94 +148,28 @@ export const getQuotationById = async (req: Request, res: Response): Promise<voi
 };
 
 /**
- * @desc    Crear nueva cotización
- * @route   POST /api/quotations
- * @access  Private
- */
-export const createQuotation = async (req: Request, res: Response): Promise<void> => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    // Validar que el cliente exista y sea cliente
-    const client = await Contact.findById(req.body.client);
-    if (!client || !client.isCustomer) {
-      res.status(400).json({
-        success: false,
-        message: 'Cliente no válido'
-      });
-      return;
-    }
-
-    // Validar que todos los productos existan
-    for (const item of req.body.items) {
-      const product = await Item.findById(item.product);
-      if (!product || product.isDeleted) {
-        res.status(400).json({
-          success: false,
-          message: `Producto inválido: ${item.product}`
-        });
-        return;
-      }
-    }
-
-    // Obtener el último correlativo
-    const lastQuotation = await Quotation.findOne({}).sort({ correlative: -1 });
-    const correlative = lastQuotation ? lastQuotation.correlative + 1 : 1;
-
-    // Crear la cotización
-    const quotation = await Quotation.create({
-      ...req.body,
-      correlative,
-      seller: req.user?._id, // Asignar al usuario actual
-      status: QuotationStatus.PENDING
-    });
-
-    // Registrar en el log
-    if (req.user && req.user._id) {
-      await logService.createLog(
-        LogOperation.CREATE,
-        LogCollectionType.QUOTATION,
-        (quotation._id as mongoose.Types.ObjectId).toString(),
-        req.user._id.toString(),
-        {
-          clientName: client.name,
-          correlative,
-          totalAmount: quotation.totalAmount
-        }
-      );
-    }
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json({
-      success: true,
-      data: quotation
-    });
-  } catch (error: any) {
-    await session.abortTransaction();
-    session.endSession();
-
-    console.error('Error al crear cotización:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Error al crear cotización'
-    });
-  }
-};
-
-/**
- * @desc    Actualizar cotización
+ * @desc    Actualizar una cotización
  * @route   PUT /api/quotations/:id
  * @access  Private
  */
 export const updateQuotation = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Encontrar la cotización a actualizar
-    const quotation = await Quotation.findById(req.params.id);
+    // Verificar que el usuario está autenticado
+    if (!req.user?._id) {
+      res.status(401).json({
+        success: false,
+        message: 'No autorizado'
+      });
+      return;
+    }
 
-    if (!quotation || quotation.isDeleted) {
+    const quotation = await quotationService.updateQuotation(
+      req.params.id,
+      req.body,
+      req.user._id.toString()
+    );
+
+    if (!quotation) {
       res.status(404).json({
         success: false,
         message: 'Cotización no encontrada'
@@ -167,48 +177,9 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Si la cotización ya fue convertida o rechazada, no se puede actualizar
-    if (quotation.status === QuotationStatus.CONVERTED || quotation.status === QuotationStatus.REJECTED) {
-      res.status(400).json({
-        success: false,
-        message: `No se puede actualizar una cotización en estado ${quotation.status}`
-      });
-      return;
-    }
-
-    // Validar que no se cambie el correlativo
-    if (req.body.correlative && req.body.correlative !== quotation.correlative) {
-      res.status(400).json({
-        success: false,
-        message: 'No se puede modificar el correlativo'
-      });
-      return;
-    }
-
-    // Actualizar la cotización
-    const updatedQuotation = await Quotation.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body },
-      { new: true, runValidators: true }
-    );
-
-    // Registrar en el log
-    if (req.user && req.user._id) {
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.QUOTATION,
-        (quotation._id as mongoose.Types.ObjectId).toString(),
-        req.user._id.toString(),
-        {
-          correlative: quotation.correlative,
-          updatedFields: Object.keys(req.body)
-        }
-      );
-    }
-
     res.status(200).json({
       success: true,
-      data: updatedQuotation
+      data: quotation
     });
   } catch (error: any) {
     console.error('Error al actualizar cotización:', error);
@@ -220,15 +191,27 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
 };
 
 /**
- * @desc    Eliminar cotización (soft delete)
+ * @desc    Eliminar una cotización (borrado lógico)
  * @route   DELETE /api/quotations/:id
  * @access  Private
  */
 export const deleteQuotation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const quotation = await Quotation.findById(req.params.id);
+    // Verificar que el usuario está autenticado
+    if (!req.user?._id) {
+      res.status(401).json({
+        success: false,
+        message: 'No autorizado'
+      });
+      return;
+    }
 
-    if (!quotation || quotation.isDeleted) {
+    const quotation = await quotationService.deleteQuotation(
+      req.params.id,
+      req.user._id.toString()
+    );
+
+    if (!quotation) {
       res.status(404).json({
         success: false,
         message: 'Cotización no encontrada'
@@ -236,36 +219,9 @@ export const deleteQuotation = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Si la cotización ya fue convertida, no se puede eliminar
-    if (quotation.status === QuotationStatus.CONVERTED) {
-      res.status(400).json({
-        success: false,
-        message: 'No se puede eliminar una cotización convertida a venta'
-      });
-      return;
-    }
-
-    // Soft delete
-    quotation.isDeleted = true;
-    await quotation.save();
-
-    // Registrar en el log
-    if (req.user && req.user._id) {
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.QUOTATION,
-        (quotation._id as mongoose.Types.ObjectId).toString(),
-        req.user._id.toString(),
-        {
-          correlative: quotation.correlative,
-          status: quotation.status
-        }
-      );
-    }
-
     res.status(200).json({
       success: true,
-      data: {}
+      message: 'Cotización eliminada correctamente'
     });
   } catch (error: any) {
     console.error('Error al eliminar cotización:', error);
@@ -277,21 +233,39 @@ export const deleteQuotation = async (req: Request, res: Response): Promise<void
 };
 
 /**
- * @desc    Convertir cotización a venta
- * @route   POST /api/quotations/:id/convert
+ * @desc    Cambiar el estado de una cotización
+ * @route   PATCH /api/quotations/:id/status
  * @access  Private
  */
-export const convertToSale = async (req: Request, res: Response): Promise<void> => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
+export const changeQuotationStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Encontrar la cotización
-    const quotation = await Quotation.findById(req.params.id)
-      .populate('client')
-      .populate('items.product');
+    // Verificar que el usuario está autenticado
+    if (!req.user?._id) {
+      res.status(401).json({
+        success: false,
+        message: 'No autorizado'
+      });
+      return;
+    }
 
-    if (!quotation || quotation.isDeleted) {
+    // Verificar que se proporciona un estado válido
+    const { status } = req.body;
+
+    if (!status || !Object.values(TransactionStatus).includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: 'Estado inválido'
+      });
+      return;
+    }
+
+    const quotation = await quotationService.changeQuotationStatus(
+      req.params.id,
+      status,
+      req.user._id.toString()
+    );
+
+    if (!quotation) {
       res.status(404).json({
         success: false,
         message: 'Cotización no encontrada'
@@ -299,203 +273,48 @@ export const convertToSale = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Verificar que la cotización esté en estado pendiente o aprobada
-    if (quotation.status !== QuotationStatus.PENDING && quotation.status !== QuotationStatus.APPROVED) {
-      res.status(400).json({
-        success: false,
-        message: `No se puede convertir una cotización en estado ${quotation.status}`
-      });
-      return;
-    }
-
-    // Validar que todos los productos existan y tengan stock suficiente si están inventariados
-    for (const item of quotation.items) {
-      // Obtenemos el producto directamente para validar stock
-      const productId = item.product._id ? item.product._id.toString() : item.product.toString();
-      const product = await Item.findById(productId);
-
-      if (!product || product.isDeleted) {
-        res.status(400).json({
-          success: false,
-          message: `Producto inválido o ya no disponible: ${productId}`
-        });
-        return;
-      }
-
-      // Verificar stock solo si el producto está inventariado
-      if (product.isInventoried) {
-        const currentStock = product.stock === null ? 0 : product.stock;
-        if (currentStock < item.quantity) {
-          res.status(400).json({
-            success: false,
-            message: `Stock insuficiente para el producto: ${product.name}. Disponible: ${currentStock}, Solicitado: ${item.quantity}`
-          });
-          return;
-        }
-      }
-    }
-
-    // Obtener el último correlativo de ventas
-    const lastSale = await Sale.findOne({}).sort({ correlative: -1 });
-    const correlative = lastSale ? lastSale.correlative + 1 : 1;
-
-    // Obtener el tipo de documento y su número según los parámetros recibidos
-    const documentType = req.body.documentType || DocumentType.INVOICE; // Usar factura por defecto
-    const lastDocNumber = await Sale.findOne({ documentType }).sort({ documentNumber: -1 });
-    const documentNumber = lastDocNumber ? lastDocNumber.documentNumber + 1 : 1;
-
-    // Preparar datos para la nueva venta
-    const saleData = {
-      correlative,
-      documentType,
-      documentNumber,
-      date: new Date(), // Fecha actual
-      client: quotation.client._id,
-      items: quotation.items.map(item => ({
-        product: item.product._id ? item.product._id : item.product,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        discount: item.discount,
-        subtotal: item.subtotal
-      })),
-      netAmount: quotation.netAmount,
-      taxAmount: quotation.taxAmount,
-      totalAmount: quotation.totalAmount,
-      quotationRef: quotation._id, // Referencia a la cotización original
-      seller: req.user?._id || quotation.seller, // Usar el usuario actual o el de la cotización
-      observations: req.body.observations || quotation.observations
-    };
-
-    // Crear la venta
-    const sale = await Sale.create(saleData);
-
-    // Actualizar stock de productos
-    for (const item of quotation.items) {
-      const productId = item.product._id ? item.product._id.toString() : item.product.toString();
-      // Usamos el servicio de stock para actualizar
-      await stockService.updateStock(productId, -item.quantity);
-    }
-
-    // Actualizar estado de la cotización
-    quotation.status = QuotationStatus.CONVERTED;
-    await quotation.save();
-
-    // Registrar en el log
-    if (req.user && req.user._id) {
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.QUOTATION,
-        (quotation._id as any).toString(),
-        req.user._id.toString(),
-        {
-          action: 'convert_to_sale',
-          correlative: quotation.correlative,
-          saleCorrelative: correlative,
-          documentType,
-          documentNumber
-        }
-      );
-
-      await logService.createLog(
-        LogOperation.CREATE,
-        LogCollectionType.SALE,
-        (sale._id as any).toString(),
-        req.user._id.toString(),
-        {
-          clientName: (quotation.client as IContact).name,
-          correlative,
-          documentType,
-          documentNumber,
-          totalAmount: sale.totalAmount,
-          fromQuotation: quotation.correlative
-        }
-      );
-    }
-
-    await session.commitTransaction();
-    session.endSession();
-
     res.status(200).json({
       success: true,
-      message: 'Cotización convertida a venta exitosamente',
-      data: sale
+      data: quotation
     });
   } catch (error: any) {
-    await session.abortTransaction();
-    session.endSession();
-
-    console.error('Error al convertir cotización a venta:', error);
+    console.error('Error al cambiar estado de cotización:', error);
     res.status(400).json({
       success: false,
-      message: error.message || 'Error al convertir cotización a venta'
+      message: error.message || 'Error al cambiar estado de cotización'
     });
   }
 };
 
 /**
- * @desc    Filtrar cotizaciones
- * @route   POST /api/quotations/filter
+ * @desc    Preview de cálculo de cotización (sin guardar)
+ * @route   POST /api/quotations/preview
  * @access  Private
  */
-export const filterQuotations = async (req: Request, res: Response): Promise<void> => {
+export const previewQuotationCalculation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { client, startDate, endDate, status } = req.body;
-    const filterObject: any = { isDeleted: false };
-
-    // Aplicar filtros
-    if (client) filterObject.client = client;
-    if (status) filterObject.status = status;
-    if (startDate || endDate) {
-      filterObject.date = {};
-      if (startDate) filterObject.date.$gte = new Date(startDate);
-      if (endDate) filterObject.date.$lte = new Date(endDate);
-    }
-
-    // Buscar cotizaciones
-    const quotations = await Quotation.find(filterObject)
-      .populate('client', 'name rut')
-      .populate('seller', 'name email')
-      .sort({ date: -1 });
+    // Obtener el preview de cálculo
+    const preview = await quotationService.previewQuotationCalculation(req.body);
 
     res.status(200).json({
       success: true,
-      count: quotations.length,
-      data: quotations
+      data: preview
     });
   } catch (error: any) {
-    console.error('Error al filtrar cotizaciones:', error);
+    console.error('Error al calcular preview de cotización:', error);
     res.status(400).json({
       success: false,
-      message: error.message || 'Error al filtrar cotizaciones'
+      message: error.message || 'Error al calcular preview de cotización'
     });
   }
 };
 
-/**
- * @desc    Obtener cotizaciones pendientes
- * @route   GET /api/quotations/pending
- * @access  Private
- */
-export const getPendingQuotations = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const quotations = await Quotation.find({
-      status: QuotationStatus.PENDING,
-      isDeleted: false
-    })
-      .populate('client', 'name rut')
-      .populate('seller', 'name email')
-      .sort({ date: -1 });
-
-    res.status(200).json({
-      success: true,
-      count: quotations.length,
-      data: quotations
-    });
-  } catch (error: any) {
-    console.error('Error al obtener cotizaciones pendientes:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Error al obtener cotizaciones pendientes'
-    });
-  }
+export default {
+  createQuotation,
+  getQuotations,
+  getQuotationById,
+  updateQuotation,
+  deleteQuotation,
+  changeQuotationStatus,
+  previewQuotationCalculation
 }; 

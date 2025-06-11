@@ -1,32 +1,36 @@
 import express from 'express';
 import {
+  createPurchase,
   getPurchases,
   getPurchaseById,
-  createPurchase,
   updatePurchase,
   deletePurchase,
-  getPurchasesBySupplier,
-  getExpensesByCategory
+  changePurchaseStatus,
+  previewPurchaseCalculation
 } from '../controllers/purchaseController';
-import { protect } from '../middleware/auth';
+import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
-// Rutas protegidas
+// Proteger todas las rutas de compras
 router.use(protect);
 
-// Rutas básicas CRUD
+// Ruta para preview de cálculo (debe ir antes de /:id)
+router.route('/preview')
+  .post(previewPurchaseCalculation); // Preview de cálculo de compra
+
+// Rutas para el CRUD de compras
 router.route('/')
-  .get(getPurchases)
-  .post(createPurchase);
+  .get(getPurchases)       // Obtener todas las compras
+  .post(createPurchase);   // Crear una nueva compra
 
 router.route('/:id')
-  .get(getPurchaseById)
-  .put(updatePurchase)
-  .delete(deletePurchase);
+  .get(getPurchaseById)    // Obtener una compra por ID
+  .put(updatePurchase)     // Actualizar una compra
+  .delete(deletePurchase); // Eliminar una compra (borrado lógico)
 
-// Rutas específicas
-router.route('/supplier/:supplierId').get(getPurchasesBySupplier);
-router.route('/expenses').post(getExpensesByCategory);
+// Ruta para cambiar el estado de una compra
+router.route('/:id/status')
+  .patch(changePurchaseStatus);
 
 export default router; 

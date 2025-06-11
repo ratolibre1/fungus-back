@@ -75,14 +75,25 @@ export const createConsumable = async (req: Request, res: Response): Promise<voi
       const consumableId = consumable._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createItemLog(
         LogOperation.CREATE,
-        LogCollectionType.CONSUMABLE,
         consumableId,
         userId,
         {
-          consumableName: consumable.get('name'),
-          consumableData: req.body
+          name: consumable.get('name'),
+          description: consumable.get('description'),
+          netPrice: consumable.get('netPrice'),
+          dimensions: consumable.get('dimensions'),
+          stock: consumable.get('stock'),
+          isInventoried: consumable.get('isInventoried'),
+          itemType: 'Consumable',
+          operationType: 'CONSUMABLE_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'consumableController',
+            requestData: req.body,
+            initialStock: consumable.get('stock')
+          }
         }
       );
     }
@@ -107,6 +118,21 @@ export const createConsumable = async (req: Request, res: Response): Promise<voi
  */
 export const updateConsumable = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Obtener consumible antes de la actualización para el log
+    const oldConsumable = await Consumable.findOne({
+      _id: req.params.id,
+      isDeleted: false
+    });
+
+    if (!oldConsumable) {
+      res.status(404).json({
+        success: false,
+        message: 'Consumible no encontrado'
+      });
+      return;
+    }
+
+    // Actualizar consumible
     const consumable = await Consumable.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -129,14 +155,27 @@ export const updateConsumable = async (req: Request, res: Response): Promise<voi
       const consumableId = consumable._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.CONSUMABLE,
+      await logService.createItemChangeLog(
         consumableId,
         userId,
+        req.body,
         {
-          consumableName: consumable.get('name'),
-          changes: req.body
+          name: oldConsumable.get('name'),
+          description: oldConsumable.get('description'),
+          netPrice: oldConsumable.get('netPrice'),
+          dimensions: oldConsumable.get('dimensions'),
+          stock: oldConsumable.get('stock'),
+          isInventoried: oldConsumable.get('isInventoried'),
+          itemType: 'Consumable'
+        },
+        {
+          name: consumable.get('name'),
+          description: consumable.get('description'),
+          netPrice: consumable.get('netPrice'),
+          dimensions: consumable.get('dimensions'),
+          stock: consumable.get('stock'),
+          isInventoried: consumable.get('isInventoried'),
+          itemType: 'Consumable'
         }
       );
     }
@@ -185,12 +224,26 @@ export const deleteConsumable = async (req: Request, res: Response): Promise<voi
     if (req.user && req.user._id) {
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.CONSUMABLE,
+      await logService.createItemDeletionLog(
         consumableId,
         userId,
-        { consumableName }
+        {
+          name: consumableName,
+          description: consumable.get('description'),
+          netPrice: consumable.get('netPrice'),
+          dimensions: consumable.get('dimensions'),
+          stock: consumable.get('stock'),
+          isInventoried: consumable.get('isInventoried'),
+          itemType: 'Consumable',
+          createdAt: consumable.get('createdAt')
+        },
+        {
+          sourceController: 'consumableController',
+          deletionReason: 'User request via DELETE endpoint',
+          finalStockValue: consumable.get('stock') !== null && consumable.get('stock') > 0
+            ? consumable.get('netPrice') * consumable.get('stock')
+            : 0
+        }
       );
     }
 

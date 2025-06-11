@@ -6,7 +6,9 @@ import {
   updateClient,
   deleteClient,
   searchClients,
-  getClientDetails
+  getClientDetails,
+  getClientMetrics,
+  getClientTransactions
 } from '../controllers/clientController';
 import { protect } from '../middleware/auth';
 
@@ -31,5 +33,9 @@ router.route('/:id')
   .get(getClientById)
   .put(updateClient)
   .delete(deleteClient);
+
+// Rutas específicas para detalles, métricas y transacciones
+router.route('/:id/metrics').get(getClientMetrics);
+router.route('/:id/transactions').get(getClientTransactions);
 
 export default router; 

@@ -1,34 +1,41 @@
 import express from 'express';
 import {
+  createSale,
   getSales,
   getSaleById,
-  createSale,
   updateSale,
   deleteSale,
-  getSalesByPeriod,
-  getSalesByClient,
-  generateInvoicePDF
+  changeSaleStatus,
+  previewSaleCalculation,
+  convertQuotationToSale
 } from '../controllers/saleController';
-import { protect } from '../middleware/auth';
+import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
-// Rutas protegidas
+// Proteger todas las rutas de ventas
 router.use(protect);
 
-// Rutas básicas CRUD
+// Ruta para preview de cálculo (debe ir antes de /:id)
+router.route('/preview')
+  .post(previewSaleCalculation); // Preview de cálculo de venta
+
+// Ruta para convertir cotización a venta (debe ir antes de /:id)
+router.route('/convert/:quotationId')
+  .post(convertQuotationToSale); // Convertir cotización a venta
+
+// Rutas para el CRUD de ventas
 router.route('/')
-  .get(getSales)
-  .post(createSale);
+  .get(getSales)       // Obtener todas las ventas
+  .post(createSale);   // Crear una nueva venta
 
 router.route('/:id')
-  .get(getSaleById)
-  .put(updateSale)
-  .delete(deleteSale);
+  .get(getSaleById)    // Obtener una venta por ID
+  .put(updateSale)     // Actualizar una venta
+  .delete(deleteSale); // Eliminar una venta (borrado lógico)
 
-// Rutas específicas
-router.route('/period').post(getSalesByPeriod);
-router.route('/client/:clientId').get(getSalesByClient);
-router.route('/:id/pdf').get(generateInvoicePDF);
+// Ruta para cambiar el estado de una venta
+router.route('/:id/status')
+  .patch(changeSaleStatus);
 
 export default router; 

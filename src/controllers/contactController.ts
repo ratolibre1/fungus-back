@@ -169,18 +169,26 @@ export const createContact = async (req: Request, res: Response): Promise<void> 
           const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
           const userId = req.user._id.toString();
 
-          await logService.createLog(
+          await logService.createContactLog(
             LogOperation.CREATE,
-            LogCollectionType.CONTACT,
             contactId,
             userId,
             {
-              contactName: contact.name,
-              contactRut: contact.rut,
+              name: contact.name,
+              rut: contact.rut,
+              email: contact.email,
+              phone: contact.phone,
+              address: contact.address,
               isCustomer: contact.isCustomer,
               isSupplier: contact.isSupplier,
-              wasReactivated: true,
-              contactData: req.body
+              needsReview: contact.needsReview,
+              operationType: 'CONTACT_REACTIVATION',
+              additionalData: {
+                wasReactivated: true,
+                sourceController: 'contactController',
+                requestData: req.body,
+                previousDeletionStatus: true
+              }
             }
           );
         }
@@ -216,17 +224,26 @@ export const createContact = async (req: Request, res: Response): Promise<void> 
       const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
+      await logService.createContactLog(
         LogOperation.CREATE,
-        LogCollectionType.CONTACT,
         contactId,
         userId,
         {
-          contactName: contact.name,
-          contactRut: contact.rut,
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
           isCustomer: contact.isCustomer,
           isSupplier: contact.isSupplier,
-          contactData: req.body
+          needsReview: contact.needsReview,
+          operationType: 'CONTACT_CREATION',
+          additionalData: {
+            createdViaAPI: true,
+            sourceController: 'contactController',
+            requestData: req.body,
+            hasMultipleRoles: contact.isCustomer && contact.isSupplier
+          }
         }
       );
     }
@@ -313,23 +330,29 @@ export const updateContact = async (req: Request, res: Response): Promise<void> 
       const contactId = (contact as unknown as { _id: { toString(): string } })._id.toString();
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.UPDATE,
-        LogCollectionType.CONTACT,
+      await logService.createContactChangeLog(
         contactId,
         userId,
+        req.body,
         {
-          contactName: contact.name,
-          contactRut: contact.rut,
+          name: oldContact.name,
+          rut: oldContact.rut,
+          email: oldContact.email,
+          phone: oldContact.phone,
+          address: oldContact.address,
+          isCustomer: oldContact.isCustomer,
+          isSupplier: oldContact.isSupplier,
+          needsReview: oldContact.needsReview
+        },
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
           isCustomer: contact.isCustomer,
           isSupplier: contact.isSupplier,
-          oldData: {
-            name: oldContact.name,
-            rut: oldContact.rut,
-            isCustomer: oldContact.isCustomer,
-            isSupplier: oldContact.isSupplier
-          },
-          changes: req.body
+          needsReview: contact.needsReview
         }
       );
     }
@@ -383,17 +406,25 @@ export const deleteContact = async (req: Request, res: Response): Promise<void> 
     if (req.user && req.user._id) {
       const userId = req.user._id.toString();
 
-      await logService.createLog(
-        LogOperation.DELETE,
-        LogCollectionType.CONTACT,
+      await logService.createContactDeletionLog(
         contactId,
         userId,
         {
-          contactName: contactName,
-          contactRut: contactRut,
-          wasCustomer: wasCustomer,
-          wasSupplier: wasSupplier,
-          action: 'deleted'
+          name: contactName,
+          rut: contactRut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: wasCustomer,
+          isSupplier: wasSupplier,
+          needsReview: contact.needsReview,
+          createdAt: contact.createdAt
+        },
+        'full_deletion',
+        {
+          sourceController: 'contactController',
+          deletionReason: 'User request via DELETE endpoint',
+          hadMultipleRoles: wasCustomer && wasSupplier
         }
       );
     }
@@ -407,6 +438,328 @@ export const deleteContact = async (req: Request, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       message: error.message || 'Error al eliminar contacto'
+    });
+  }
+};
+
+/**
+ * @desc    Agregar rol de proveedor a un cliente existente
+ * @route   PATCH /api/contacts/:id/add-supplier-role
+ * @access  Private
+ */
+export const addSupplierRole = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Verificar que el contacto existe y es cliente
+    const contact = await Contact.findOne({
+      _id: id,
+      isDeleted: false,
+      isCustomer: true
+    }) as IContact | null;
+
+    if (!contact) {
+      res.status(404).json({
+        success: false,
+        message: 'Cliente no encontrado'
+      });
+      return;
+    }
+
+    // Verificar que no sea ya proveedor
+    if (contact.isSupplier) {
+      res.status(400).json({
+        success: false,
+        message: 'Este contacto ya tiene rol de proveedor'
+      });
+      return;
+    }
+
+    // Actualizar para agregar rol de proveedor
+    const updatedContact = await Contact.findByIdAndUpdate(
+      id,
+      { isSupplier: true },
+      { new: true, runValidators: true }
+    ) as IContact;
+
+    // Crear log de la operación
+    if (req.user && req.user._id) {
+      const contactId = (updatedContact as unknown as { _id: { toString(): string } })._id.toString();
+      const userId = req.user._id.toString();
+
+      await logService.createContactChangeLog(
+        contactId,
+        userId,
+        { isSupplier: true },
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: contact.isCustomer,
+          isSupplier: contact.isSupplier,
+          needsReview: contact.needsReview
+        },
+        {
+          name: updatedContact.name,
+          rut: updatedContact.rut,
+          email: updatedContact.email,
+          phone: updatedContact.phone,
+          address: updatedContact.address,
+          isCustomer: updatedContact.isCustomer,
+          isSupplier: updatedContact.isSupplier,
+          needsReview: updatedContact.needsReview
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Rol de proveedor agregado exitosamente',
+      data: updatedContact
+    });
+  } catch (error: any) {
+    console.error(`Error al agregar rol de proveedor al contacto ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error al agregar rol de proveedor'
+    });
+  }
+};
+
+/**
+ * @desc    Agregar rol de cliente a un proveedor existente
+ * @route   PATCH /api/contacts/:id/add-customer-role
+ * @access  Private
+ */
+export const addCustomerRole = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Verificar que el contacto existe y es proveedor
+    const contact = await Contact.findOne({
+      _id: id,
+      isDeleted: false,
+      isSupplier: true
+    }) as IContact | null;
+
+    if (!contact) {
+      res.status(404).json({
+        success: false,
+        message: 'Proveedor no encontrado'
+      });
+      return;
+    }
+
+    // Verificar que no sea ya cliente
+    if (contact.isCustomer) {
+      res.status(400).json({
+        success: false,
+        message: 'Este contacto ya tiene rol de cliente'
+      });
+      return;
+    }
+
+    // Actualizar para agregar rol de cliente
+    const updatedContact = await Contact.findByIdAndUpdate(
+      id,
+      { isCustomer: true },
+      { new: true, runValidators: true }
+    ) as IContact;
+
+    // Crear log de la operación
+    if (req.user && req.user._id) {
+      const contactId = (updatedContact as unknown as { _id: { toString(): string } })._id.toString();
+      const userId = req.user._id.toString();
+
+      await logService.createContactChangeLog(
+        contactId,
+        userId,
+        { isCustomer: true },
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: contact.isCustomer,
+          isSupplier: contact.isSupplier,
+          needsReview: contact.needsReview
+        },
+        {
+          name: updatedContact.name,
+          rut: updatedContact.rut,
+          email: updatedContact.email,
+          phone: updatedContact.phone,
+          address: updatedContact.address,
+          isCustomer: updatedContact.isCustomer,
+          isSupplier: updatedContact.isSupplier,
+          needsReview: updatedContact.needsReview
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Rol de cliente agregado exitosamente',
+      data: updatedContact
+    });
+  } catch (error: any) {
+    console.error(`Error al agregar rol de cliente al contacto ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error al agregar rol de cliente'
+    });
+  }
+};
+
+/**
+ * @desc    Quitar rol de proveedor a un contacto dual
+ * @route   PATCH /api/contacts/:id/remove-supplier-role
+ * @access  Private
+ */
+export const removeSupplierRole = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Verificar que el contacto existe y tiene ambos roles
+    const contact = await Contact.findOne({
+      _id: id,
+      isDeleted: false,
+      isCustomer: true,
+      isSupplier: true
+    }) as IContact | null;
+
+    if (!contact) {
+      res.status(404).json({
+        success: false,
+        message: 'Contacto no encontrado o no tiene rol dual'
+      });
+      return;
+    }
+
+    // Actualizar para quitar rol de proveedor
+    const updatedContact = await Contact.findByIdAndUpdate(
+      id,
+      { isSupplier: false },
+      { new: true, runValidators: true }
+    ) as IContact;
+
+    // Crear log de la operación
+    if (req.user && req.user._id) {
+      const contactId = (updatedContact as unknown as { _id: { toString(): string } })._id.toString();
+      const userId = req.user._id.toString();
+
+      await logService.createContactDeletionLog(
+        contactId,
+        userId,
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: contact.isCustomer,
+          isSupplier: contact.isSupplier,
+          needsReview: contact.needsReview,
+          createdAt: contact.createdAt
+        },
+        'role_removal',
+        {
+          sourceController: 'contactController',
+          roleRemoved: 'supplier',
+          remainingRole: 'customer',
+          deletionReason: 'User request via PATCH endpoint'
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Rol de proveedor eliminado exitosamente, se mantiene como cliente',
+      data: updatedContact
+    });
+  } catch (error: any) {
+    console.error(`Error al quitar rol de proveedor al contacto ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error al quitar rol de proveedor'
+    });
+  }
+};
+
+/**
+ * @desc    Quitar rol de cliente a un contacto dual
+ * @route   PATCH /api/contacts/:id/remove-customer-role
+ * @access  Private
+ */
+export const removeCustomerRole = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Verificar que el contacto existe y tiene ambos roles
+    const contact = await Contact.findOne({
+      _id: id,
+      isDeleted: false,
+      isCustomer: true,
+      isSupplier: true
+    }) as IContact | null;
+
+    if (!contact) {
+      res.status(404).json({
+        success: false,
+        message: 'Contacto no encontrado o no tiene rol dual'
+      });
+      return;
+    }
+
+    // Actualizar para quitar rol de cliente
+    const updatedContact = await Contact.findByIdAndUpdate(
+      id,
+      { isCustomer: false },
+      { new: true, runValidators: true }
+    ) as IContact;
+
+    // Crear log de la operación
+    if (req.user && req.user._id) {
+      const contactId = (updatedContact as unknown as { _id: { toString(): string } })._id.toString();
+      const userId = req.user._id.toString();
+
+      await logService.createContactDeletionLog(
+        contactId,
+        userId,
+        {
+          name: contact.name,
+          rut: contact.rut,
+          email: contact.email,
+          phone: contact.phone,
+          address: contact.address,
+          isCustomer: contact.isCustomer,
+          isSupplier: contact.isSupplier,
+          needsReview: contact.needsReview,
+          createdAt: contact.createdAt
+        },
+        'role_removal',
+        {
+          sourceController: 'contactController',
+          roleRemoved: 'customer',
+          remainingRole: 'supplier',
+          deletionReason: 'User request via PATCH endpoint'
+        }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Rol de cliente eliminado exitosamente, se mantiene como proveedor',
+      data: updatedContact
+    });
+  } catch (error: any) {
+    console.error(`Error al quitar rol de cliente al contacto ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error al quitar rol de cliente'
     });
   }
 }; 

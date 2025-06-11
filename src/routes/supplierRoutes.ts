@@ -6,7 +6,9 @@ import {
   updateSupplier,
   deleteSupplier,
   searchSuppliers,
-  getSupplierDetails
+  getSupplierDetails,
+  getSupplierMetrics,
+  getSupplierTransactions
 } from '../controllers/supplierController';
 import { protect } from '../middleware/auth';
 
@@ -31,5 +33,9 @@ router.route('/:id')
 // Ruta para obtener detalles del proveedor
 router.route('/:id/details')
   .get(getSupplierDetails);
+
+// Rutas específicas para métricas y transacciones
+router.route('/:id/metrics').get(getSupplierMetrics);
+router.route('/:id/transactions').get(getSupplierTransactions);
 
 export default router; 
